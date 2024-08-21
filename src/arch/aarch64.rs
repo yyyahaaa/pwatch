@@ -38,3 +38,42 @@ pub fn id_to_str(id: usize) -> &'static str {
         _ => "unknown",
     }
 }
+
+pub fn str_to_id(s: &str) -> Option<usize> {
+    match s {
+        "x0" => Some(0),
+        "x1" => Some(1),
+        "x2" => Some(2),
+        "x3" => Some(3),
+        "x4" => Some(4),
+        "x5" => Some(5),
+        "x6" => Some(6),
+        "x7" => Some(7),
+        "x8" => Some(8),
+        "x9" => Some(9),
+        "x10" => Some(10),
+        "x11" => Some(11),
+        "x12" => Some(12),
+        "x13" => Some(13),
+        "x14" => Some(14),
+        "x15" => Some(15),
+        "x16" => Some(16),
+        "x17" => Some(17),
+        "x18" => Some(18),
+        "x19" => Some(19),
+        "x20" => Some(20),
+        "x21" => Some(21),
+        "x22" => Some(22),
+        "x23" => Some(23),
+        "x24" => Some(24),
+        "x25" => Some(25),
+        "x26" => Some(26),
+        "x27" => Some(27),
+        "x28" => Some(28),
+        "fp" => Some(29),
+        "lr" => Some(30),
+        "sp" => Some(31),
+        "pc" => Some(32),
+        _ => None,
+    }
+}

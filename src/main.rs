@@ -3,6 +3,9 @@ use colored::Colorize;
 use log::error;
 use perf::{PerfMap, SampleData};
 use perf_event_open_sys as sys;
+use std::io;
+use libc::{iovec, process_vm_readv, pid_t, c_void};
+
 mod arch;
 mod perf;
 
@@ -25,6 +28,14 @@ struct Args {
     r#type: String,
     /// watchpoint address, in hex format. 0x prefix is optional.
     addr: String,
+    
+    #[arg(short, long, num_args = 1..)]
+    /// specify the registers to read as const char* pointers.
+    xregs: Vec<String>,
+
+    #[arg(short, long)]
+    /// if provided, read the string at the register value address.
+    string: bool,
 }
 
 fn parse_len(s: &str) -> Option<u32> {
@@ -108,8 +119,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let (res, _, _) = futures::future::select_all(maps.into_iter().map(|m| {
+        let xregs = args.xregs.clone();
+        let string = args.string;
         tokio::spawn(async move {
-            if let Err(e) = m.events(handle_event).await {
+            if let Err(e) = m.events(move |data| handle_event(data, &xregs, string)).await {
                 error!("error: {}", e);
             }
         })
@@ -119,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_event(data: SampleData) {
+fn handle_event(data: SampleData, xregs: &Vec<String>, read_string: bool) {
     println!("-------");
     println!(
         "{}: {} {}: {}",
@@ -137,10 +150,121 @@ fn handle_event(data: SampleData) {
     if data.regs.len() % 4 != 0 {
         println!();
     }
+
+    // 打印寄存器指向的地址处内容
+    if !xregs.is_empty() {
+        println!("{}", "XRegs:".yellow().bold());
+    }
+    for xreg in xregs {
+        if let Some(reg_index) = arch::str_to_id(xreg) {
+            if let Some(&reg_value) = data.regs.get(reg_index) {
+                let reg_value = reg_value & 0xFFFFFFFFFF;
+                println!(" {:>3}: 0x{:016x}", xreg.blue().bold(), reg_value); // Print reg_value
+                if reg_value != 0 {
+                    // Check if the register value is within the user space address range
+                    if reg_value < 0x7FFFFFFFFF {
+                        if read_string {
+                            // Attempt to read the string from the address using process_vm_readv
+                            match read_string_from_process(data.pid as libc::pid_t, reg_value) {
+                                Ok(string) => println!("{}: {}", "   String".green().bold(), string),
+                                Err(e) => println!("{}: Failed to read string: {}", xreg.yellow().bold(), e),
+                            }
+                        } else {
+                            match read_bytes_from_process(data.pid as libc::pid_t, reg_value, 8) {
+                                Ok(bytes) => println!("{}: {}", "   Bytes".green().bold(), format_bytes(&bytes)),
+                                Err(e) => println!("{}: Failed to read bytes: {}", xreg.yellow().bold(), e),
+                            }
+                        }
+                    } else {
+                        println!("      {}", "Address out of user space range".red().bold());
+                    }
+                } else {
+                    println!("      {}", "Null pointer".red().bold());
+                }
+            } else {
+                println!("      {}", "Register not available".red().bold());
+            }
+        } else {
+            println!("      {}", "Invalid register name".red().bold());
+        }
+    }
+
     if let Some(backtrace) = data.backtrace {
         println!("{}:", "backtrace".yellow().bold());
         for addr in backtrace {
             println!("  0x{:016x}", addr);
         }
     }
+}
+
+fn read_string_from_process(pid: pid_t, addr: u64) -> Result<String, io::Error> {
+    const MAX_STRING_LENGTH: usize = 256; // Define a maximum string length to read
+    let mut buffer = vec![0u8; MAX_STRING_LENGTH];
+
+    let local_iov = iovec {
+        iov_base: buffer.as_mut_ptr() as *mut c_void,
+        iov_len: buffer.len(),
+    };
+
+    let remote_iov = iovec {
+        iov_base: addr as *mut c_void,
+        iov_len: buffer.len(),
+    };
+
+    let nread = unsafe {
+        process_vm_readv(
+            pid,
+            &local_iov as *const iovec,
+            1,
+            &remote_iov as *const iovec,
+            1,
+            0,
+        )
+    };
+
+    if nread == -1 {
+        return Err(io::Error::last_os_error());
+    }
+
+    // Find the null terminator to determine the actual string length
+    if let Some(pos) = buffer.iter().position(|&c| c == 0) {
+        buffer.truncate(pos);
+    }
+
+    Ok(String::from_utf8_lossy(&buffer).to_string())
+}
+
+fn read_bytes_from_process(pid: pid_t, addr: u64, len: usize) -> Result<Vec<u8>, io::Error> {
+    let mut buffer = vec![0u8; len];
+
+    let local_iov = iovec {
+        iov_base: buffer.as_mut_ptr() as *mut c_void,
+        iov_len: buffer.len(),
+    };
+
+    let remote_iov = iovec {
+        iov_base: addr as *mut c_void,
+        iov_len: buffer.len(),
+    };
+
+    let nread = unsafe {
+        process_vm_readv(
+            pid,
+            &local_iov as *const iovec,
+            1,
+            &remote_iov as *const iovec,
+            1,
+            0,
+        )
+    };
+
+    if nread == -1 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(buffer)
+}
+
+fn format_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ")
 }

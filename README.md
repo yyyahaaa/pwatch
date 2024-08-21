@@ -1,20 +1,30 @@
 # pwatch
-
-A cli tool to install a hardware breakpoint/watchpoint on a process in linux. This is useful for debugging a process without having to attach a debugger to it.
-
-Now it supports x86_64 and arm64. You can use it on rooted Android devices as well.
+# pwatch
+Refer to：
+[pwatch](https://github.com/ri-char/pwatch) - A cli tool that uses perf_event to install a hardware breakpoint/watchpoint on a process in linux. 
+Extend pwatch to enable reading data (string or bytes) at the address pointed to by the pointer in register  through inter process reading (process_vm_readv).
 
 ## Usage
 
 ```
-pwatch <pid> <type> <addr>
-pwatch -t <tid> <type> <addr>
+pwatch <PID> <TYPE> <ADDR>
+pwatch -t <TID> <TYPE> <ADDR>
 ```
-For example:
+For example1:
 ```bash
 pwatch 31737 rw4 0x55fa689a90
 ```
 This will install a read/write 4 byte watchpoint on the address `0x55fa689a90` of all threads in the process with pid `31737`.
+    example2:
+```bash
+pwatch 31737 x 0x700faad038 -x x1 -s
+```
+This will install an execve watchpoint on the address `0x700faad038` of all threads in the process with pid `31737`, and will read the string at the address pointed to by the pointer in register x1 when the watchpoint is triggered.
+    example3:
+```bash
+pwatch 31737 x 0x700faad038 -x x1 pc
+```
+This will install an execve watchpoint on the address `0x700faad038` of all threads in the process with pid `31737`, and will read 8 bytes at the address pointed to by the pointer in register x1 and pc when the watchpoint is triggered.
 
 full arguments:
 ```
@@ -29,6 +39,8 @@ Options:
       --buf-size <BUF_SIZE>  buffer size, in power of 2. For example, 2 means 2^2 pages = 4 * 4096 bytes [default: 0]
   -t                         whether the target is a thread or a process
   -b, --backtrace            whether to print backtrace
+  -x, --xregs <XREGS>...     specify the registers to read as const char* pointers
+  -s, --string               if provided, read the string at the register value address
   -h, --help                 Print help
 ```
 

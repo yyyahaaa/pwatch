@@ -483,6 +483,7 @@ dependencies = [
  "clap",
  "colored",
  "futures",
+ "libc",
  "log",
  "nix",
  "perf-event-open-sys",
