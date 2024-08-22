@@ -15,16 +15,24 @@ For example1:
 pwatch 31737 rw4 0x55fa689a90
 ```
 This will install a read/write 4 byte watchpoint on the address `0x55fa689a90` of all threads in the process with pid `31737`.
+
     example2:
 ```bash
 pwatch 31737 x 0x700faad038 -x x1 -s
 ```
 This will install an execve watchpoint on the address `0x700faad038` of all threads in the process with pid `31737`, and will read the string at the address pointed to by the pointer in register x1 when the watchpoint is triggered.
+
     example3:
 ```bash
 pwatch 31737 x 0x700faad038 -x x1 pc
 ```
 This will install an execve watchpoint on the address `0x700faad038` of all threads in the process with pid `31737`, and will read 8 bytes at the address pointed to by the pointer in register x1 and pc when the watchpoint is triggered.
+
+    example4:
+```bash
+pwatch 31737 x --so libgame.so 0x45567 -x x1 -s
+```
+pwatch now also supports specifying the SO file using the `--so` parameter and calculates the breakpoint address by adding the offset to the starting address of the SO file.
 
 full arguments:
 ```
@@ -41,6 +49,7 @@ Options:
   -b, --backtrace            whether to print backtrace
   -x, --xregs <XREGS>...     specify the registers to read as const char* pointers
   -s, --string               if provided, read the string at the register value address
+      --so <SO>              specify the shared object file
   -h, --help                 Print help
 ```
 

@@ -5,6 +5,7 @@ use perf::{PerfMap, SampleData};
 use perf_event_open_sys as sys;
 use std::io;
 use libc::{iovec, process_vm_readv, pid_t, c_void};
+use procfs::process::{Process, MMapPath};
 
 mod arch;
 mod perf;
@@ -36,6 +37,10 @@ struct Args {
     #[arg(short, long)]
     /// if provided, read the string at the register value address.
     string: bool,
+
+    #[arg(long)]
+    /// specify the shared object file.
+    so: Option<String>,
 }
 
 fn parse_len(s: &str) -> Option<u32> {
@@ -73,6 +78,19 @@ fn parse_addr(s: &str) -> Option<u64> {
     u64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16).ok()
 }
 
+fn get_so_base_address(pid: u32, so_name: &str) -> Option<u64> {
+    let process = Process::new(pid as i32).ok()?;
+    let maps = process.maps().ok()?;
+    for map in maps {
+        if let MMapPath::Path(path) = map.pathname {
+            if path.to_string_lossy().contains(so_name) {
+                return Some(map.address.0);
+            }
+        }
+    }
+    None
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
@@ -80,8 +98,18 @@ async fn main() -> anyhow::Result<()> {
 
     let (ty, bp_len) = parse_watchpoint_type(&args.r#type)
         .ok_or_else(|| anyhow::anyhow!(format!("invalid watchpoint type: {}", args.r#type)))?;
-    let addr = parse_addr(&args.addr)
-        .ok_or_else(|| anyhow::anyhow!(format!("invalid address: {}", args.addr)))?;
+
+    let addr = if let Some(so_name) = &args.so {
+        let base_addr = get_so_base_address(args.pid, so_name)
+            .ok_or_else(|| anyhow::anyhow!(format!("failed to find base address for {}", so_name)))?;
+        let offset = parse_addr(&args.addr)
+            .ok_or_else(|| anyhow::anyhow!(format!("invalid address: {}", args.addr)))?;
+        base_addr + offset
+    } else {
+        parse_addr(&args.addr)
+            .ok_or_else(|| anyhow::anyhow!(format!("invalid address: {}", args.addr)))?
+    };
+
     let maps = if !args.thread {
         procfs::process::Process::new(args.pid as i32)?
             .tasks()?
